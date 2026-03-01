@@ -1,9 +1,14 @@
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.v1.router import api_router
+from app.config import settings
+from app.core.db import Base, engine
 
 # ── Logging setup ──────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -14,11 +19,26 @@ logging.basicConfig(
 logger = logging.getLogger("red_heart")
 # ──────────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Red Heart API")
 
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting up — creating database tables if needed")
+    create_tables()
+    logger.info("Startup complete")
+    yield
+    logger.info("Shutting down")
+
+
+app = FastAPI(title="Red Heart API", lifespan=lifespan)
+
+origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +63,9 @@ async def log_requests(request: Request, call_next):
         elapsed_ms,
     )
     return response
+
+
+app.include_router(api_router)
 
 
 @app.get("/")
